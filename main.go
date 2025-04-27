@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/cmd/fyne_demo/tutorials"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"image/color"
@@ -27,76 +26,149 @@ var names = map[string]string{
 	"home":           "主菜单",
 }
 
+const preferenceCurrentTutorial = "currentTutorial"
+
+var topWindow fyne.Window
+var HasNativeMenu = true
+
 func main() {
 	a := app.New()
 	iconResource, _ := fyne.LoadResourceFromPath("")
 	a.SetIcon(iconResource)
 	w := a.NewWindow(getName("xiaoshi helper"))
+	topWindow = w
+
+	w.SetMainMenu(makeMenu(a, w))
 	w.SetMaster()
-	showHome(w)
-	w.Resize(fyne.NewSize(640, 460))
-	w.ShowAndRun()
-}
 
-func makeNav(w fyne.Window) fyne.CanvasObject {
-	tree := widget.NewTreeWithStrings(menuItems)
-	tree.OnSelected = func(id string) {
-		if id == "Request Order" {
-			showUploadScreen(w)
-		}
-		if id == getName("home") {
-			showHome(w)
-		}
-	}
-	return container.NewBorder(nil, nil, nil, nil, tree)
-}
+	content := container.NewStack()
 
-// 创建上方工具栏
-func createToolbar(w fyne.Window) *widget.Toolbar {
-	toolbar := widget.NewToolbar(
-		widget.NewToolbarAction(theme.HomeIcon(), func() {
-			showHome(w)
-		}),
-		widget.NewToolbarSeparator(),
-		widget.NewToolbarAction(theme.HelpIcon(), func() {
-			dialog.ShowInformation("帮助", "添加微信13103965606", w)
-		}),
-	)
-	toolbar.Theme().Color(theme.ColorYellow, 1)
-	return toolbar
-}
-func showHome(w fyne.Window) {
-	top := createToolbar(w)
-	left := canvas.NewText("left", color.White)
-	middle := canvas.NewText("content", color.White)
-	// 创建主窗口布局，菜单栏在上方，操作区域在下方
-	mainLayout := container.New(layout.NewBorderLayout(top, nil, left, nil), top, left, middle)
-	w.SetContent(mainLayout)
+	//title := widget.NewLabel("Component name")
+	intro := widget.NewLabel("An introduction would probably go\nhere, as well as a")
+	intro.Wrapping = fyne.TextWrapWord
 
-	// 添加横线分割
-	//separator := widget.NewSeparator()
-	//finalLayout := container.NewVBox(toolbar, separator)
-	//content := container.NewStack()
-	//homeData := container.NewBorder(
-	//	container.NewVBox(title, widget.NewSeparator(), intro), nil, nil, nil, content)
+	//top := container.NewVBox(title, widget.NewSeparator(), intro)
+	//setTutorial := func(t tutorials.Tutorial) {
+	//if fyne.CurrentDevice().IsMobile() {
+	//	child := a.NewWindow(t.Title)
+	//	topWindow = child
+	//	child.SetContent(t.View(topWindow))
+	//	child.Show()
+	//	child.SetOnClosed(func() {
+	//		topWindow = w
+	//	})
+	//	return
+	//}
 	//
-	//split := container.NewHSplit(makeNav(w), finalLayout)
-	//split.Offset = 0
-}
+	//title.SetText(t.Title)
+	//isMarkdown := len(t.Intro) == 0
+	//if !isMarkdown {
+	//	intro.SetText(t.Intro)
+	//}
+	//
+	//if t.Title == "Welcome" || isMarkdown {
+	//	top.Hide()
+	//} else {
+	//	top.Show()
+	//}
+	//
+	//content.Objects = []fyne.CanvasObject{t.View(w)}
+	//content.Refresh()
+	//}
 
-func showUploadScreen(w fyne.Window) {
-	content := container.NewVBox(
-		widget.NewLabel("Upload Excel/CSV"),
-		widget.NewButton("Upload", func() {
-			uploadFile(w)
-		}),
-	)
+	//tutorial := container.NewBorder(top, nil, nil, nil, content)
 
 	split := container.NewHSplit(makeNav(w), content)
 	split.Offset = 0
 	w.SetContent(split)
+	w.Resize(fyne.NewSize(640, 460))
+	w.ShowAndRun()
 }
+func makeMenu(a fyne.App, w fyne.Window) *fyne.MainMenu {
+	const contactInfoKey = "contact_info"
+	contactInfo := getContactInfo(contactInfoKey) // 从配置或环境变量中加载联系信息
 
+	//创建主菜单
+	m := fyne.NewMenu("todo",
+		fyne.NewMenuItem("Home", func() {
+			// Handle Home menu item click
+		}),
+	)
+
+	// 创建帮助菜单项
+	helpMenuItem := createHelpMenuItem(w, contactInfo)
+
+	// 组装主菜单
+	mainMenu := fyne.NewMainMenu(
+		m,
+		fyne.NewMenu("help", helpMenuItem),
+	)
+	return mainMenu
+}
+func makeNav(w fyne.Window) fyne.CanvasObject {
+	tree := widget.NewTreeWithStrings(menuItems)
+	tree.OnSelected = func(id string) {
+		if id == "Request Order" {
+			//showUploadScreen(w)
+		}
+		if id == getName("home") {
+			//showHome(w)
+		}
+	}
+	return container.NewBorder(nil, nil, nil, nil, tree)
+}
+func makeNav1(setTutorial func(tutorial tutorials.Tutorial), loadPrevious bool) fyne.CanvasObject {
+	a := fyne.CurrentApp()
+
+	tree := &widget.Tree{
+		ChildUIDs: func(uid string) []string {
+			return tutorials.TutorialIndex[uid]
+		},
+		IsBranch: func(uid string) bool {
+			children, ok := tutorials.TutorialIndex[uid]
+
+			return ok && len(children) > 0
+		},
+		CreateNode: func(branch bool) fyne.CanvasObject {
+			return widget.NewLabel("Collection Widgets")
+		},
+		UpdateNode: func(uid string, branch bool, obj fyne.CanvasObject) {
+			t, ok := tutorials.Tutorials[uid]
+			if !ok {
+				fyne.LogError("Missing tutorial panel: "+uid, nil)
+				return
+			}
+			obj.(*widget.Label).SetText(t.Title)
+		},
+		OnSelected: func(uid string) {
+			if t, ok := tutorials.Tutorials[uid]; ok {
+				for _, f := range tutorials.OnChangeFuncs {
+					f()
+				}
+				tutorials.OnChangeFuncs = nil // Loading a page registers a new cleanup.
+
+				a.Preferences().SetString(preferenceCurrentTutorial, uid)
+				setTutorial(t)
+			}
+		},
+	}
+
+	if loadPrevious {
+		currentPref := a.Preferences().StringWithFallback(preferenceCurrentTutorial, "welcome")
+		tree.Select(currentPref)
+	}
+
+	themes := container.NewGridWithColumns(2,
+		widget.NewButton("Dark", func() {
+			a.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
+		}),
+		widget.NewButton("Light", func() {
+			a.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+		}),
+	)
+
+	return container.NewBorder(nil, themes, nil, nil, tree)
+}
 func uploadFile(w fyne.Window) {
 	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err == nil && reader != nil {
@@ -209,4 +281,37 @@ func getName(str string) string {
 		return str
 	}
 	return names[str]
+}
+
+type forcedVariant struct {
+	fyne.Theme
+
+	variant fyne.ThemeVariant
+}
+
+func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
+	return f.Theme.Color(name, f.variant)
+}
+
+// 从配置或环境变量中加载联系信息
+func getContactInfo(key string) string {
+	// 示例：从环境变量中获取联系信息
+	// 实际实现可以根据需求调整为读取配置文件等
+	return os.Getenv(key)
+}
+
+// 创建帮助菜单项
+func createHelpMenuItem(w fyne.Window, contactInfo string) *fyne.MenuItem {
+	if contactInfo == "" {
+		contactInfo = "联系信息未配置" // 默认值，避免空字符串
+	}
+	return fyne.NewMenuItem("联系我们", func() {
+		// 异常处理
+		defer func() {
+			if r := recover(); r != nil {
+				dialog.ShowError(fmt.Errorf("显示信息时发生错误: %v", r), w)
+			}
+		}()
+		dialog.ShowInformation("", contactInfo, w)
+	})
 }
