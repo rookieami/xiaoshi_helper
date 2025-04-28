@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/cmd/fyne_demo/tutorials"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"image/color"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,65 +24,87 @@ var names = map[string]string{
 	"xiaoshi helper": "小石助手",
 	"home":           "主菜单",
 }
-
-const preferenceCurrentTutorial = "currentTutorial"
-
-var topWindow fyne.Window
-var HasNativeMenu = true
+var (
+	isRemoveSpace = false
+	IsConvertCase = false
+	tmpStr        = make(map[string]struct{})
+)
 
 func main() {
 	a := app.New()
 	iconResource, _ := fyne.LoadResourceFromPath("")
 	a.SetIcon(iconResource)
 	w := a.NewWindow(getName("xiaoshi helper"))
-	topWindow = w
 
 	w.SetMainMenu(makeMenu(a, w))
 	w.SetMaster()
 
 	content := container.NewStack()
-
-	//title := widget.NewLabel("Component name")
-	intro := widget.NewLabel("An introduction would probably go\nhere, as well as a")
+	title := widget.NewLabel("首页")
+	intro := widget.NewLabel("添加简介")
 	intro.Wrapping = fyne.TextWrapWord
 
-	//top := container.NewVBox(title, widget.NewSeparator(), intro)
-	//setTutorial := func(t tutorials.Tutorial) {
-	//if fyne.CurrentDevice().IsMobile() {
-	//	child := a.NewWindow(t.Title)
-	//	topWindow = child
-	//	child.SetContent(t.View(topWindow))
-	//	child.Show()
-	//	child.SetOnClosed(func() {
-	//		topWindow = w
-	//	})
-	//	return
-	//}
-	//
-	//title.SetText(t.Title)
-	//isMarkdown := len(t.Intro) == 0
-	//if !isMarkdown {
-	//	intro.SetText(t.Intro)
-	//}
-	//
-	//if t.Title == "Welcome" || isMarkdown {
-	//	top.Hide()
-	//} else {
-	//	top.Show()
-	//}
-	//
-	//content.Objects = []fyne.CanvasObject{t.View(w)}
-	//content.Refresh()
-	//}
+	top := container.NewVBox(title, widget.NewSeparator(), intro)
+	setModule := func(m Module) {
+		title.SetText(m.Title)
+		isMarkdown := len(m.Intro) == 0
+		if !isMarkdown {
+			intro.SetText(m.Intro)
+		}
+		if m.Title == "Welcome" || isMarkdown {
+			top.Hide()
+		} else {
+			top.Show()
+		}
 
-	//tutorial := container.NewBorder(top, nil, nil, nil, content)
-
-	split := container.NewHSplit(makeNav(w), content)
-	split.Offset = 0
+		content.Objects = []fyne.CanvasObject{m.View(w)}
+		content.Refresh()
+	}
+	modules := container.NewBorder(top, nil, nil, nil, content)
+	split := container.NewHSplit(makeNav(setModule), modules)
+	split.Offset = 0.2
 	w.SetContent(split)
 	w.Resize(fyne.NewSize(640, 460))
 	w.ShowAndRun()
 }
+
+func makeNav(setModule func(m Module)) fyne.CanvasObject {
+	a := fyne.CurrentApp()
+	tree := &widget.Tree{
+		ChildUIDs: func(uid string) []string {
+			return moduleIndexs[uid]
+		},
+		IsBranch: func(uid string) bool {
+			children, ok := moduleIndexs[uid]
+
+			return ok && len(children) > 0
+		},
+		CreateNode: func(branch bool) fyne.CanvasObject {
+			return widget.NewLabel("Collection Widgets")
+		},
+		UpdateNode: func(uid string, branch bool, obj fyne.CanvasObject) {
+			t, ok := Modules[uid]
+			if !ok {
+				fyne.LogError("Missing tutorial panel: "+uid, nil)
+				return
+			}
+			obj.(*widget.Label).SetText(t.Title)
+		},
+		OnSelected: func(uid string) {
+			if t, ok := Modules[uid]; ok {
+				//for _, f := range tutorials.OnChangeFuncs {
+				//	f()
+				//}
+				//tutorials.OnChangeFuncs = nil // Loading a page registers a new cleanup.
+
+				a.Preferences().SetString("", uid)
+				setModule(t)
+			}
+		},
+	}
+	return container.NewBorder(nil, nil, nil, nil, tree)
+}
+
 func makeMenu(a fyne.App, w fyne.Window) *fyne.MainMenu {
 	const contactInfoKey = "contact_info"
 	contactInfo := getContactInfo(contactInfoKey) // 从配置或环境变量中加载联系信息
@@ -98,77 +119,76 @@ func makeMenu(a fyne.App, w fyne.Window) *fyne.MainMenu {
 	// 创建帮助菜单项
 	helpMenuItem := createHelpMenuItem(w, contactInfo)
 
+	// 创建主题选项
+	themeMenu := createThemeMenus(a, w)
+
 	// 组装主菜单
 	mainMenu := fyne.NewMainMenu(
 		m,
 		fyne.NewMenu("help", helpMenuItem),
+		themeMenu,
 	)
 	return mainMenu
 }
-func makeNav(w fyne.Window) fyne.CanvasObject {
-	tree := widget.NewTreeWithStrings(menuItems)
-	tree.OnSelected = func(id string) {
-		if id == "Request Order" {
-			//showUploadScreen(w)
-		}
-		if id == getName("home") {
-			//showHome(w)
-		}
+
+// 创建帮助菜单项
+func createHelpMenuItem(w fyne.Window, contactInfo string) *fyne.MenuItem {
+	if contactInfo == "" {
+		contactInfo = "联系信息未配置" // 默认值，避免空字符串
 	}
-	return container.NewBorder(nil, nil, nil, nil, tree)
+	return fyne.NewMenuItem("联系我们", func() {
+		// 异常处理
+		defer func() {
+			if r := recover(); r != nil {
+				dialog.ShowError(fmt.Errorf("显示信息时发生错误: %v", r), w)
+			}
+		}()
+		dialog.ShowInformation("", contactInfo, w)
+	})
 }
-func makeNav1(setTutorial func(tutorial tutorials.Tutorial), loadPrevious bool) fyne.CanvasObject {
-	a := fyne.CurrentApp()
 
-	tree := &widget.Tree{
-		ChildUIDs: func(uid string) []string {
-			return tutorials.TutorialIndex[uid]
-		},
-		IsBranch: func(uid string) bool {
-			children, ok := tutorials.TutorialIndex[uid]
-
-			return ok && len(children) > 0
-		},
-		CreateNode: func(branch bool) fyne.CanvasObject {
-			return widget.NewLabel("Collection Widgets")
-		},
-		UpdateNode: func(uid string, branch bool, obj fyne.CanvasObject) {
-			t, ok := tutorials.Tutorials[uid]
-			if !ok {
-				fyne.LogError("Missing tutorial panel: "+uid, nil)
-				return
-			}
-			obj.(*widget.Label).SetText(t.Title)
-		},
-		OnSelected: func(uid string) {
-			if t, ok := tutorials.Tutorials[uid]; ok {
-				for _, f := range tutorials.OnChangeFuncs {
-					f()
-				}
-				tutorials.OnChangeFuncs = nil // Loading a page registers a new cleanup.
-
-				a.Preferences().SetString(preferenceCurrentTutorial, uid)
-				setTutorial(t)
-			}
-		},
+// 创建主题菜单
+func createThemeMenus(a fyne.App, w fyne.Window) *fyne.Menu {
+	// 输入参数校验
+	if a == nil {
+		return nil // 返回 nil 表示无法创建菜单
 	}
 
-	if loadPrevious {
-		currentPref := a.Preferences().StringWithFallback(preferenceCurrentTutorial, "welcome")
-		tree.Select(currentPref)
+	// 定义主题设置的辅助函数
+	setTheme := func(variant fyne.ThemeVariant) {
+		defaultTheme := theme.DefaultTheme()
+		defaultTheme.Color(theme.ColorNameBackground, variant)
+		a.Settings().SetTheme(defaultTheme)
+		// 刷新窗口以应用新主题
+		w.Canvas().Refresh(w.Content())
 	}
 
-	themes := container.NewGridWithColumns(2,
-		widget.NewButton("Dark", func() {
-			a.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
-		}),
-		widget.NewButton("Light", func() {
-			a.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+	// 创建主题菜单项
+	themeMenuItem := fyne.NewMenuItem("跟随系统", func() {
+		a.Settings().SetTheme(theme.DefaultTheme())
+	})
+
+	lightThemeItem := fyne.NewMenuItem("浅色", func() {
+		setTheme(theme.VariantLight)
+	})
+
+	darkThemeItem := fyne.NewMenuItem("深色", func() {
+		a.Settings().SetTheme(&ForcedVariant{Theme: theme.DefaultTheme(), ThemeVariant: theme.VariantDark})
+	})
+
+	// 返回完整的主题菜单
+	return fyne.NewMenu("主题", themeMenuItem, lightThemeItem, darkThemeItem)
+}
+
+func selectFiled(w fyne.Window) fyne.CanvasObject {
+	content := container.NewVBox(
+		widget.NewButton("字符替换", func() {
+			uploadFile(w)
 		}),
 	)
-
-	return container.NewBorder(nil, themes, nil, nil, tree)
+	return content
 }
+
 func uploadFile(w fyne.Window) {
 	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err == nil && reader != nil {
@@ -180,38 +200,30 @@ func uploadFile(w fyne.Window) {
 				return
 			}
 
-			// Read the content of the uploaded file
+			// 读取文件
 			data, err := io.ReadAll(reader)
 			if err != nil {
 				dialog.ShowError(err, w)
 				return
 			}
 
-			// Convert to JSON
+			//
 			jsonData, err := convertToJSON(data, ext)
 			if err != nil {
 				dialog.ShowError(err, w)
 				return
 			}
 
-			// Make API request
-			err = makeAPIRequest(jsonData)
+			// 保存文件
+			err = saveFileForHistory(fileName, jsonData)
 			if err != nil {
-				dialog.ShowError(err, w)
-				return
+				log.Println("Error saving file for history:", err)
 			}
-
-			// Optionally, keep the file for history
-			// err = saveFileForHistory(fileName, data)
-			// if err != nil {
-			// 	log.Println("Error saving file for history:", err)
-			// }
 
 			dialog.ShowInformation("Success", "File uploaded and processed successfully", w)
 		}
 	}, w)
 }
-
 func getFileExtension(fileName string) string {
 	return filepath.Ext(fileName)
 }
@@ -234,32 +246,6 @@ func csvToJSON(data []byte) ([]byte, error) {
 	return json.Marshal(records)
 }
 
-//func excelToJSON(data []byte) ([]byte, error) {
-//	file, err := xlsx.OpenBinary(data)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	var rows [][]string
-//	for _, sheet := range file.Sheets {
-//		for _, row := range sheet.Rows {
-//			var cells []string
-//			for _, cell := range row.Cells {
-//				cells = append(cells, cell.String())
-//			}
-//			rows = append(rows, cells)
-//		}
-//	}
-//
-//	return json.Marshal(rows)
-//}
-
-func makeAPIRequest(data []byte) error {
-	fmt.Println("Sending data to API:", string(data))
-	// Implement API request logic here
-	return nil
-}
-
 func saveFileForHistory(fileName string, data []byte) error {
 	// Implement logic to save the uploaded file for history
 	// This is just a placeholder implementation
@@ -272,9 +258,9 @@ func saveFileForHistory(fileName string, data []byte) error {
 	return nil
 }
 
-var menuItems = map[string][]string{
-	"": {"Home", "Request Order"},
-}
+//var menuItems = map[string][]string{
+//	"": {"Home", "Request Order"},
+//}
 
 func getName(str string) string {
 	if tag == 1 {
@@ -283,35 +269,9 @@ func getName(str string) string {
 	return names[str]
 }
 
-type forcedVariant struct {
-	fyne.Theme
-
-	variant fyne.ThemeVariant
-}
-
-func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
-	return f.Theme.Color(name, f.variant)
-}
-
 // 从配置或环境变量中加载联系信息
 func getContactInfo(key string) string {
 	// 示例：从环境变量中获取联系信息
 	// 实际实现可以根据需求调整为读取配置文件等
 	return os.Getenv(key)
-}
-
-// 创建帮助菜单项
-func createHelpMenuItem(w fyne.Window, contactInfo string) *fyne.MenuItem {
-	if contactInfo == "" {
-		contactInfo = "联系信息未配置" // 默认值，避免空字符串
-	}
-	return fyne.NewMenuItem("联系我们", func() {
-		// 异常处理
-		defer func() {
-			if r := recover(); r != nil {
-				dialog.ShowError(fmt.Errorf("显示信息时发生错误: %v", r), w)
-			}
-		}()
-		dialog.ShowInformation("", contactInfo, w)
-	})
 }
