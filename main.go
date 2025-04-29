@@ -30,6 +30,23 @@ var (
 	tmpStr        = make(map[string]struct{})
 )
 
+type GlobalData struct {
+	Value     string
+	Listeners []func(string)
+}
+
+func (g *GlobalData) Set(value string) {
+	g.Value = value
+	for _, l := range g.Listeners {
+		l(value)
+	}
+}
+
+func (g *GlobalData) AddListener(f func(string)) {
+	g.Listeners = append(g.Listeners, f)
+}
+
+var g = &GlobalData{} //全局监听
 func main() {
 	a := app.New()
 	iconResource, _ := fyne.LoadResourceFromPath("")

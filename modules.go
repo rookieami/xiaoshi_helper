@@ -6,6 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -32,8 +33,9 @@ var moduleIndexs = map[string][]string{
 
 // 替换字符窗口
 func ReplaceCharWindow(w fyne.Window) fyne.CanvasObject {
+	path := ""
+	labal := widget.NewLabel("已选文件: ")
 	// 创建一个可以选择指定文件的组件
-	labal := widget.NewLabel("文件名称: ")
 	button := widget.NewButton("选择文件", func() {
 		dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err == nil && reader != nil {
@@ -41,49 +43,45 @@ func ReplaceCharWindow(w fyne.Window) fyne.CanvasObject {
 				fileName := reader.URI().Name()
 				ext := getFileExtension(fileName)
 				if ext != ".csv" && ext != ".xls" && ext != ".xlsx" {
-					dialog.ShowError(errors.New("unsupported file format"), w)
+					dialog.ShowError(errors.New("选择文件格式错误"), w)
 					return
 				}
-				labal.SetText(fmt.Sprintf("文件路径:  %s", fileName))
+				path = reader.URI().Path()
+				labal.SetText(fmt.Sprintf("已选文件: %s", path))
 			}
 		}, w)
 	})
-	input := widget.NewMultiLineEntry()
-	selectRow := container.NewHBox(
-		widget.NewLabel("输入待替换字段名"),
-		input,
-	)
-	selectBox := container.NewHBox(
-		widget.NewLabel("选择操作"),
-		widget.NewCheckGroup([]string{"去除空格", "转换大小写"}, func(values []string) {
-			if len(values) > 0 {
-				for _, value := range values {
-					if value == "去除空格" {
-						isRemoveSpace = true
-					}
-					if value == "转换大小写" {
-						IsConvertCase = true
-					}
-				}
-			}
-		}),
-	)
+
+	topObj := container.New(layout.NewHBoxLayout(), button, layout.NewSpacer(), labal, layout.NewSpacer())
+
+	label1 := widget.NewLabel("待操作字段名")
+	entry1 := widget.NewEntry()
+	label2 := widget.NewLabel("输出新字段名")
+	entry2 := widget.NewEntry()
+	nameObj := container.New(layout.NewGridLayout(4), label1, entry1, label2, entry2)
+
 	// 创建一个容器,其中有两个按钮，点击左侧按钮后，上方新增一个输入框
-	inputList := container.NewVBox()
-	content2 := container.NewHBox(
-		//新建两个按钮，
-		widget.NewButton("新增", func() {
-			//点击后，inputList新增一个输入框
-			input := widget.NewEntry()
-			input.SetPlaceHolder("")
-			if input.Text != "" {
-				tmpStr[input.Text] = struct{}{}
-			}
-			inputList.Add(input)
-		}),
-	)
-	content1 := container.NewVBox(inputList, content2)
-	content := container.NewVBox(button, labal, selectRow, selectBox, content1)
+	inputList := container.NewGridWithColumns(2)
+	button2 := widget.NewButton("新增指定去除字符", func() {
+		//点击后，inputList新增一个输入框
+		input := widget.NewEntry()
+		if input.Text != "" {
+			tmpStr[input.Text] = struct{}{}
+		}
+		inputList.Add(layout.NewSpacer())
+		inputList.Add(input)
+	})
+	content1 := container.NewGridWithColumns(2, button2, layout.NewSpacer(), layout.NewSpacer(), inputList)
+
+	label3 := widget.NewLabel("操作选项")
+	checkGroup := widget.NewCheckGroup([]string{"去除末尾", "去除全部", "转换小写", "转换大写", "去除空格"}, func(selected []string) {
+		for _, v := range selected {
+			tmpStr[v] = struct{}{}
+		}
+	})
+	content3 := container.NewVBox(label3, checkGroup)
+
+	content := container.NewVBox(topObj, layout.NewSpacer(), nameObj, content1, content3)
 	return content
 }
 func Todo(w fyne.Window) fyne.CanvasObject {
