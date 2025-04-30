@@ -1,9 +1,6 @@
 package main
 
 import (
-	"encoding/csv"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -11,11 +8,9 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"io"
-	"log"
+	"github.com/xuri/excelize/v2"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // 国际化标记
@@ -57,27 +52,13 @@ func main() {
 	w.SetMaster()
 
 	content := container.NewStack()
-	title := widget.NewLabel("首页")
-	intro := widget.NewLabel("添加简介")
-	intro.Wrapping = fyne.TextWrapWord
 
-	top := container.NewVBox(title, widget.NewSeparator(), intro)
 	setModule := func(m Module) {
-		title.SetText(m.Title)
-		isMarkdown := len(m.Intro) == 0
-		if !isMarkdown {
-			intro.SetText(m.Intro)
-		}
-		if m.Title == "Welcome" || isMarkdown {
-			top.Hide()
-		} else {
-			top.Show()
-		}
-
 		content.Objects = []fyne.CanvasObject{m.View(w)}
 		content.Refresh()
 	}
-	modules := container.NewBorder(top, nil, nil, nil, content)
+	modules := container.NewStack(content)
+	setModule(Modules["字段处理"])
 	split := container.NewHSplit(makeNav(setModule), modules)
 	split.Offset = 0.2
 	w.SetContent(split)
@@ -119,7 +100,7 @@ func makeNav(setModule func(m Module)) fyne.CanvasObject {
 			}
 		},
 	}
-	return container.NewBorder(nil, nil, nil, nil, tree)
+	return container.NewHBox(tree)
 }
 
 func makeMenu(a fyne.App, w fyne.Window) *fyne.MainMenu {
@@ -197,72 +178,51 @@ func createThemeMenus(a fyne.App, w fyne.Window) *fyne.Menu {
 	return fyne.NewMenu("主题", themeMenuItem, lightThemeItem, darkThemeItem)
 }
 
-func selectFiled(w fyne.Window) fyne.CanvasObject {
-	content := container.NewVBox(
-		widget.NewButton("字符替换", func() {
-			uploadFile(w)
-		}),
-	)
-	return content
-}
-
-func uploadFile(w fyne.Window) {
-	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err == nil && reader != nil {
-			defer reader.Close()
-			fileName := reader.URI().Name()
-			ext := getFileExtension(fileName)
-			if ext != ".csv" && ext != ".xls" && ext != ".xlsx" {
-				dialog.ShowError(errors.New("unsupported file format"), w)
-				return
-			}
-
-			// 读取文件
-			data, err := io.ReadAll(reader)
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-
-			//
-			jsonData, err := convertToJSON(data, ext)
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-
-			// 保存文件
-			err = saveFileForHistory(fileName, jsonData)
-			if err != nil {
-				log.Println("Error saving file for history:", err)
-			}
-
-			dialog.ShowInformation("Success", "File uploaded and processed successfully", w)
-		}
-	}, w)
-}
-func getFileExtension(fileName string) string {
-	return filepath.Ext(fileName)
-}
-
-func convertToJSON(data []byte, ext string) ([]byte, error) {
-	if ext == ".csv" {
-		return csvToJSON(data)
-	} else if ext == ".xls" || ext == ".xlsx" {
-		//return excelToJSON(data)
-	}
-	return nil, errors.New("unsupported file format")
-}
-
-func csvToJSON(data []byte) ([]byte, error) {
-	reader := csv.NewReader(strings.NewReader(string(data)))
-	records, err := reader.ReadAll()
+// ProcessExcelFile 读取 Excel 文件，处理指定列并保存为新文件
+func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName string) error {
+	// 打开 Excel 文件
+	f, err := excelize.OpenFile(filePath)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("打开 Excel 文件失败: %v", err)
 	}
-	return json.Marshal(records)
-}
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Println(err)
+		}
+	}()
 
+	//读取指定列内容
+	cols, err := f.GetCols("Sheet1")
+	if err != nil {
+		return fmt.Errorf("读取 Excel 文件失败: %v", err)
+	}
+	find := false
+	for _, col := range cols {
+		for i, rowCell := range col {
+			if i == 0 && rowCell != oldColName {
+				break
+			}
+			if !find {
+				find = true
+			}
+			fmt.Print(rowCell, "\t")
+		}
+		if find {
+			break
+		}
+	}
+	if !find {
+		return fmt.Errorf("未找到列名:%s", oldColName)
+	}
+
+	// 保存为新文件
+	err = f.SetSheetCol("Sheet1", newColName, []string{"aa", "bb", "cc", "dd"})
+	if err != nil {
+		return fmt.Errorf("保存文件失败: %v", err)
+	}
+	fmt.Printf("文件已保存至: %s\n", outputFilePath)
+	return nil
+}
 func saveFileForHistory(fileName string, data []byte) error {
 	// Implement logic to save the uploaded file for history
 	// This is just a placeholder implementation
