@@ -190,33 +190,46 @@ func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName st
 			fmt.Println(err)
 		}
 	}()
-
 	//读取指定列内容
 	cols, err := f.GetCols("Sheet1")
 	if err != nil {
 		return fmt.Errorf("读取 Excel 文件失败: %v", err)
 	}
-	find := false
-	for _, col := range cols {
-		for i, rowCell := range col {
-			if i == 0 && rowCell != oldColName {
-				break
-			}
-			if !find {
-				find = true
-			}
-			fmt.Print(rowCell, "\t")
+	colName := ""
+	newColData := make([]string, 0, 1024)
+	newColData = append(newColData, newColName)
+	for i, col := range cols {
+		if len(col) == 0 || col[0] != oldColName {
+			continue
 		}
-		if find {
-			break
+		colName, err = excelize.ColumnNumberToName(i + 2)
+		if err != nil {
+			return fmt.Errorf("解析列名失败: %v", err)
 		}
+		for j, str := range col {
+			if j == 0 {
+				continue
+			}
+			//todo 字符处理
+			newColData = append(newColData, str)
+		}
+		break
 	}
-	if !find {
-		return fmt.Errorf("未找到列名:%s", oldColName)
+	if colName == "" {
+		return fmt.Errorf("找不到列名: %s", oldColName)
 	}
-
-	// 保存为新文件
-	err = f.SetSheetCol("Sheet1", newColName, []string{"aa", "bb", "cc", "dd"})
+	// 新增一列
+	err = f.InsertCols("Sheet1", colName, 1)
+	if err != nil {
+		return fmt.Errorf("新增列失败: %v", err)
+	}
+	newCol := fmt.Sprintf("%s1", colName)
+	err = f.SetSheetCol("Sheet1", newCol, &newColData)
+	if err != nil {
+		return fmt.Errorf("插入数据失败: %v", err)
+	}
+	// 保存文件
+	err = f.SaveAs(outputFilePath)
 	if err != nil {
 		return fmt.Errorf("保存文件失败: %v", err)
 	}
