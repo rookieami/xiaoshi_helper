@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"path/filepath"
+	"strings"
 )
 
 // OnChangeFuncs is a slice of functions that can be registered
@@ -71,23 +72,29 @@ func ReplaceCharWindow(w fyne.Window) fyne.CanvasObject {
 
 	label4 := widget.NewLabel("操作选项:")
 	check1 := widget.NewCheck("删除末尾指定字符", func(b bool) {
-
+		_ = delEndStr.Set(true)
 	})
 	check2 := widget.NewCheck("删除全部指定字符", func(b bool) {
+		_ = delAllStr.Set(true)
 	})
 	check3 := widget.NewCheck("转换小写", func(b bool) {
+		_ = toLower.Set(true)
 	})
 	check4 := widget.NewCheck("转换大写", func(b bool) {
+		_ = toUpper.Set(true)
 	})
 	check5 := widget.NewCheck("去除空格", func(b bool) {
+		_ = delSpace.Set(true)
 	})
 	content3 := container.NewGridWithColumns(4, label4, check1, check2, check3, layout.NewSpacer(), check4, check5)
 
 	input3 := widget.NewEntry()
+	input3.SetPlaceHolder("输入待删除字符")
 	button2 := widget.NewButton("追加删除字符", func() {
 	})
 	content1 := container.NewGridWithColumns(4, button2, input3)
 	button2.OnTapped = func() {
+		// 每点击一次，追加一个按钮
 		input := widget.NewEntry()
 		content1.Add(input)
 	}
@@ -104,29 +111,34 @@ func ReplaceCharWindow(w fyne.Window) fyne.CanvasObject {
 			dialog.ShowError(errors.New("请选择文件"), w)
 			return
 		}
-		// 读取excel表
-		//data := readExcel(path)
 		if column.Text == "" {
 			dialog.ShowError(errors.New("请输入操作字段名"), w)
 			return
 		}
-		//if newColumn.Text == "" {
-		//	dialog.ShowError(errors.New("请输入新字段名"), w)
-		//	return
-		//}
-		// 读取excel表
+		if newColumn.Text == "" {
+			dialog.ShowError(errors.New("请输入新字段名"), w)
+			return
+		}
+		for _, object := range content1.Objects {
+			if entry, ok := object.(*widget.Entry); ok {
+				if entry.Text != "" {
+					// 移除空格
+					str := strings.TrimSpace(entry.Text)
+					strList[str] = struct{}{}
+				}
+			}
+		}
 		if logOutput.Disabled() {
 			logOutput.Enable()
 		}
-		appendLog(logOutput, "开始执行...")
 		appendLog(logOutput, fmt.Sprintf("文件路径 %s", path))
-
 		progress.Show()
-		for i := 1; i <= 100; i++ {
-			progress.SetValue(float64(i) / 100)
-			appendLog(logOutput, fmt.Sprintf("进度%d", i))
+
+		err := ProcessExcelFile(path, path, column.Text, newColumn.Text, progress, logOutput)
+		if err != nil {
+			dialog.ShowError(err, w)
+			return
 		}
-		// 操作完成后隐藏进度条
 	})
 	content := container.NewVBox(topObj, nameObj, content3, content1, button3, progress)
 	//新建一个二分布局

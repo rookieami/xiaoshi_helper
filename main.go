@@ -5,12 +5,15 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/xuri/excelize/v2"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // 国际化标记
@@ -19,29 +22,16 @@ var names = map[string]string{
 	"xiaoshi helper": "小石助手",
 	"home":           "主菜单",
 }
+
 var (
-	isRemoveSpace = false
-	IsConvertCase = false
-	tmpStr        = make(map[string]struct{})
+	delEndStr = binding.NewBool()         // 删除末尾指定字符
+	delAllStr = binding.NewBool()         // 删除全部指定字符
+	toLower   = binding.NewBool()         // 转换为小写
+	toUpper   = binding.NewBool()         // 转换为大写
+	delSpace  = binding.NewBool()         // 去除空格
+	strList   = make(map[string]struct{}) // 待去除字符
 )
 
-type GlobalData struct {
-	Value     string
-	Listeners []func(string)
-}
-
-func (g *GlobalData) Set(value string) {
-	g.Value = value
-	for _, l := range g.Listeners {
-		l(value)
-	}
-}
-
-func (g *GlobalData) AddListener(f func(string)) {
-	g.Listeners = append(g.Listeners, f)
-}
-
-var g = &GlobalData{} //全局监听
 func main() {
 	a := app.New()
 	iconResource, _ := fyne.LoadResourceFromPath("")
@@ -179,7 +169,7 @@ func createThemeMenus(a fyne.App, w fyne.Window) *fyne.Menu {
 }
 
 // ProcessExcelFile 读取 Excel 文件，处理指定列并保存为新文件
-func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName string) error {
+func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName string, progress *widget.ProgressBar, logOutput *widget.Entry) error {
 	// 打开 Excel 文件
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
@@ -190,28 +180,58 @@ func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName st
 			fmt.Println(err)
 		}
 	}()
+
+	// 检查 Sheet 是否存在
+	sheets := f.GetSheetList()
+	found := false
+	for _, sheet := range sheets {
+		if sheet == "Sheet1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("找不到工作表: Sheet1")
+	}
 	//读取指定列内容
 	cols, err := f.GetCols("Sheet1")
 	if err != nil {
 		return fmt.Errorf("读取 Excel 文件失败: %v", err)
 	}
 	colName := ""
-	newColData := make([]string, 0, 1024)
-	newColData = append(newColData, newColName)
+	var newColData []string
 	for i, col := range cols {
 		if len(col) == 0 || col[0] != oldColName {
 			continue
 		}
-		colName, err = excelize.ColumnNumberToName(i + 2)
+		colName, err = excelize.ColumnNumberToName(i + 1)
 		if err != nil {
 			return fmt.Errorf("解析列名失败: %v", err)
 		}
+		num := len(col)
+		newColData = make([]string, 0, num) // 根据实际数据长度预分配
+		newColData = append(newColData, newColName)
+
+		updateInterval := int(math.Max(1, float64(num)/100)) // 控制更新频率
 		for j, str := range col {
-			if j == 0 {
+			if j == 0 || str == "" {
 				continue
 			}
-			//todo 字符处理
-			newColData = append(newColData, str)
+			newStr, err := processString(str)
+			if err != nil {
+				return fmt.Errorf("处理字符串失败: %v", err)
+			}
+			newColData = append(newColData, newStr)
+
+			// 日志输出前判断 logOutput 是否为 nil
+			if logOutput != nil {
+				appendLog(logOutput, fmt.Sprintf("%d 原字符%s => %s", j, str, newStr))
+			}
+
+			// 控制进度条更新频率
+			if j%updateInterval == 0 || j == num-1 {
+				progress.SetValue(float64(j+1) / float64(num))
+			}
 		}
 		break
 	}
@@ -223,18 +243,63 @@ func ProcessExcelFile(filePath, outputFilePath string, oldColName, newColName st
 	if err != nil {
 		return fmt.Errorf("新增列失败: %v", err)
 	}
+
 	newCol := fmt.Sprintf("%s1", colName)
 	err = f.SetSheetCol("Sheet1", newCol, &newColData)
 	if err != nil {
 		return fmt.Errorf("插入数据失败: %v", err)
 	}
+
 	// 保存文件
 	err = f.SaveAs(outputFilePath)
 	if err != nil {
 		return fmt.Errorf("保存文件失败: %v", err)
 	}
-	fmt.Printf("文件已保存至: %s\n", outputFilePath)
 	return nil
+}
+
+func processString(str string) (string, error) {
+	if str == "" {
+		return str, nil
+	}
+	// 1.移除特殊字符
+	str = strings.TrimSpace(str)
+	// 2.移除指定特殊字符
+	if t, _ := delEndStr.Get(); t {
+		// 删除末尾指定字符
+		strSli := strings.Split(str, " ")
+		//倒序遍历
+		for i := len(strSli) - 1; i >= 0; i-- {
+			// 检查当前字符是否在allStr中
+			if _, ok := strList[strSli[i]]; ok {
+				// 移除末尾字符
+				strSli = strSli[:i]
+			} else {
+
+				break
+			}
+		}
+		str = strings.Join(strSli, " ")
+	} else if t, _ = delAllStr.Get(); t {
+		// 删除所有特殊字符
+		for v := range strList {
+			str = strings.ReplaceAll(str, v, "")
+		}
+		str = strings.TrimSpace(str)
+	}
+	//3.转换小写
+	if t, _ := toLower.Get(); t {
+		str = strings.ToLower(str)
+	}
+	// 4.转换大写
+	if t, _ := toUpper.Get(); t {
+		str = strings.ToUpper(str)
+	}
+	// 5.删除空格
+	if t, _ := delSpace.Get(); t {
+		str = strings.ReplaceAll(str, " ", "")
+	}
+	return str, nil
 }
 func saveFileForHistory(fileName string, data []byte) error {
 	// Implement logic to save the uploaded file for history
